@@ -1082,10 +1082,19 @@ def learning_curve(estimator, X, y, groups=None,
         Refer :ref:`User Guide <cross_validation>` for the various
         cross-validation strategies that can be used here.
 
-    scoring : string, callable or None, optional, default: None
+    scoring : string, callable, dict or None, optional, default: None
         A string (see model evaluation documentation) or
         a scorer callable object / function with signature
         ``scorer(estimator, X, y)``.
+
+        For evaluating multiple metrics, either give a dict with names as keys
+        and callables or strings as values.
+
+        NOTE that when using custom scorers, each scorer should return a single
+        value. Metric functions returning a list/array of values can be wrapped
+        into multiple scorers that return one value each.
+
+        See :ref:`multimetric_grid_search` for an example.
 
     exploit_incremental_learning : boolean, optional, default: False
         If the estimator supports incremental learning, this will be
@@ -1119,11 +1128,15 @@ def learning_curve(estimator, X, y, groups=None,
         learning curve. Note that the number of ticks might be less
         than n_ticks because duplicate entries will be removed.
 
-    train_scores : array, shape (n_ticks, n_cv_folds)
-        Scores on training sets.
+    train_scores : array, shape (n_ticks, n_cv_folds) or dict of array
+        Scores on training sets. When the scoring parameter is a dict, the
+        returned train_scores is also a dict with the same keys and the
+        associated values are those returned by the scorers.
 
-    test_scores : array, shape (n_ticks, n_cv_folds)
-        Scores on test set.
+    test_scores : array, shape (n_ticks, n_cv_folds) or dict of arrays
+        Scores on test sets. When the scoring parameter is a dict, the
+        returned train_scores is also a dict with the same keys and the
+        associated values are those returned by the scorers.
 
     Notes
     -----
@@ -1139,7 +1152,7 @@ def learning_curve(estimator, X, y, groups=None,
     # Store it as list as we will be iterating over the list multiple times
     cv_iter = list(cv.split(X, y, groups))
 
-    scorer = check_scoring(estimator, scoring=scoring)
+    scorer, is_multimetric = _check_multimetric_scoring(estimator, scoring=scoring)
 
     n_max_training_samples = len(cv_iter[0][0])
     # Because the lengths of folds can be significantly different, it is
@@ -1179,7 +1192,17 @@ def learning_curve(estimator, X, y, groups=None,
 
     out = np.asarray(out).transpose((2, 1, 0))
 
-    return train_sizes_abs, out[0], out[1]
+    outv = [{}, {}]
+    for k in scorer:
+        outv[0][k] = np.array([[row[k] for row in fold] for fold in out[0]])
+        outv[1][k] = np.array([[row[k] for row in fold] for fold in out[1]])
+
+    out = outv
+
+    if not is_multimetric:
+        return train_sizes_abs, out[0]['score'], out[1]['score']
+    else:
+        return train_sizes_abs, out[0], out[1]
 
 
 def _translate_train_sizes(train_sizes, n_max_training_samples):
